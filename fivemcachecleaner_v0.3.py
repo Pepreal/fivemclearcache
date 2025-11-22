@@ -5,6 +5,27 @@ import subprocess
 import tkinter as tk
 from tkinter import messagebox, ttk, scrolledtext, filedialog
 
+# --- Module-Level Constants ---
+
+# Folders targeted by the "Clear Cache (Recommended)" option
+RECOMMENDED_CACHE_FOLDERS = ("cache", "server-cache", "server-cache-priv", "logs", "crashes")
+
+# Folders targeted only by the "Clear Data Folder (Deep Clean)" option
+DEEP_DATA_FOLDERS = ("game-storage", "nui-storage")
+
+# --- Module and OS Check ---
+WINDOWS_OS = sys.platform.startswith('win')
+try:
+    if WINDOWS_OS:
+        import winreg
+        import ctypes
+    WINREG_AVAILABLE = True
+    CTYPES_AVAILABLE = True
+except ImportError:
+    # If modules fail to import, set flags to False
+    WINREG_AVAILABLE = False
+    CTYPES_AVAILABLE = False
+
 # --- PyInstaller Utility Function ---
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -17,23 +38,7 @@ def resource_path(relative_path):
         
     return os.path.join(base_path, relative_path)
 
-# --- Module and OS Check ---
-WINDOWS_OS = sys.platform.startswith('win')
-try:
-    if WINDOWS_OS:
-        import winreg
-    WINREG_AVAILABLE = True
-except ImportError:
-    WINREG_AVAILABLE = False
-    
-# --- Folder Categorization for Logging ---
-# Folders targeted by the "Clear Cache (Recommended)" option
-RECOMMENDED_CACHE_FOLDERS = ["cache", "server-cache", "server-cache-priv", "logs", "crashes"]
-
-# Folders targeted only by the "Clear Data Folder (Deep Clean)" option
-DEEP_DATA_FOLDERS = ["game-storage", "nui-storage"]
-
-# --- Utility Functions ---
+# --- Utility Functions --- 
 
 def get_folder_size_iterative(folder):
     """Calculates the size of a folder in MB using iterative os.walk."""
@@ -70,19 +75,35 @@ def check_windows_theme():
     except Exception:
         return "Dark"
 
-# --- Main Application Class (Version 0.4) ---
+def get_mounted_drives():
+    """Dynamically gets all mounted drive letters (A: to Z:)."""
+    if WINDOWS_OS and CTYPES_AVAILABLE:
+        try:
+            # Using the Windows API to get mounted drives
+            drive_bits = ctypes.cdll.kernel32.GetLogicalDrives()
+            drives = []
+            for i in range(26):
+                if drive_bits & (1 << i):
+                    drives.append(f"{chr(65 + i)}:\\")
+            return drives
+        except Exception:
+            # Fallback if ctypes call fails for some reason
+            return [f"{d}:\\" for d in "CDEFG"] 
+    
+    # Fallback for non-Windows or import failure
+    return [f"{d}:\\" for d in "CDEFG"] 
+
+# --- Main Application Class (Version 0.3) ---
 
 class FiveMCleanerApp:
     def __init__(self, master):
         self.master = master
-        self.master.title("FiveM Cache Cleaner V0.4")
-        self.master.geometry("1000x700")
+        self.master.title("FiveM Cache Cleaner V0.3")
+        self.master.geometry("1000x570")
         
-        # FIX: Removed the print() statement in the exception block.
         try:
             self.master.iconbitmap(resource_path("fivem_cleaner.ico"))
         except tk.TclError as e:
-            # We use 'pass' to silently ignore the error if the icon fails to load
             pass 
 
         self.master.withdraw()
@@ -109,7 +130,7 @@ class FiveMCleanerApp:
     def show_disclaimer(self):
         """Displays a disclaimer and returns True if accepted, False if cancelled."""
         disclaimer_text = (
-        "Version 0.4 (22-11-2025)\n\n"
+        "Version 0.3 (22-11-2025)\n\n"
         "This tool is provided as-is and is currently in the testing phase.\n"
         "Use it at your own risk.\n\n"
         "Purpose:\n"
@@ -221,8 +242,7 @@ class FiveMCleanerApp:
         # --- Row 3: Cleaning Buttons (Dynamically displayed) ---
         
         # --- Row 4: Progress Bar ---
-        # FIX F: Change progress bar mode to indeterminate for deletion feedback
-        self.progress_bar = ttk.Progressbar(self.master, orient="horizontal", length=700, mode="indeterminate")
+        self.progress_bar = ttk.Progressbar(self.master, orient="horizontal", length=900, mode="indeterminate")
         self.progress_bar.grid(row=4, column=0, columnspan=2, pady=10)
         self.progress_bar.grid_forget()
         
@@ -241,7 +261,7 @@ class FiveMCleanerApp:
         self.mode_display_label.pack(side=tk.LEFT, padx=15)
 
         # --- Row 6: Log Text Area ---
-        self.log_text = scrolledtext.ScrolledText(self.master, height=12, width=90, state='normal', font=("Consolas", 9))
+        self.log_text = scrolledtext.ScrolledText(self.master, height=12, width=120, state='normal', font=("Consolas", 9))
         self.log_text.grid(row=6, column=0, columnspan=2, pady=10, padx=10, sticky="nsew")
 
 
@@ -252,7 +272,6 @@ class FiveMCleanerApp:
 
     def show_help(self):
         """Displays a help box explaining the cleaning and launch modes."""
-        # --- Final Updated Help Text ---
         help_text = (
             "## Cleaning Options\n\n"
             "The cleaner targets three main areas of your FiveM installation. We recommend closing FiveM completely before cleaning.\n\n"
@@ -267,12 +286,15 @@ class FiveMCleanerApp:
             "**⬜ Not Checked**\n"
             "FiveM will start normally, loading any mods or custom files you have installed."
         )
-        # -------------------------
         messagebox.showinfo("FiveM Cleaner - How to Use", help_text)
 
     def find_fivem_paths(self):
         """Search for the FiveM cache folder and derive the FiveM.app path."""
-        # 1. Check standard AppData path
+        
+        # Define the target subdirectory path relative to the drive root or AppData
+        possible_sub_path = os.path.join("FiveM", "FiveM.app", "data")
+        
+        # 1. Check Standard AppData Path (Highest Priority)
         appdata_path = os.environ.get('LOCALAPPDATA')
         if appdata_path:
             default_cache_path = os.path.join(appdata_path, "FiveM", "FiveM.app", "data")
@@ -280,18 +302,21 @@ class FiveMCleanerApp:
                 self.fivem_app_path = os.path.dirname(default_cache_path)
                 return default_cache_path
         
-        # 2. Check for custom installation (via common path structure)
-        possible_sub_path = os.path.join("FiveM", "FiveM.app", "data")
+        # 2. Dynamic Search on ALL Mounted Drives (including C: root)
+        self.log_message("Standard path not found. Starting dynamic search on all mounted drives...")
         
-        # FIX A: Limit drive scanning to common local drives (C-F)
-        drives = [f"{d}:\\" for d in "CDEF" if os.path.exists(f"{d}:\\")]
+        # Get all mounted drives dynamically
+        drives = get_mounted_drives()
         
         for drive in drives:
+            # Check the FiveM sub-path relative to the drive root
             full_cache_path = os.path.join(drive, possible_sub_path)
+            
+            # Check for the target 'data' folder
             if os.path.exists(full_cache_path):
                 self.fivem_app_path = os.path.dirname(full_cache_path)
                 return full_cache_path
-        
+            
         return None
 
     def calculate_and_log_cache_size(self):
@@ -301,13 +326,14 @@ class FiveMCleanerApp:
             self.initial_size = 0
             return 0
 
-        # Define all folders we care about, with their location paths
-        data_folders_in_data = [os.path.join(self.cache_folder, f) for f in DEEP_DATA_FOLDERS]
-        cache_folders_in_data = [os.path.join(self.cache_folder, f) for f in ["cache", "server-cache", "server-cache-priv"]]
-        cache_folders_in_app = [os.path.join(self.fivem_app_path, f) for f in ["logs", "crashes"]]
+        # Build the list of folders to check using the module-level constants
+        # Folders that live inside the 'data' directory (cache_folder)
+        folders_in_data = [os.path.join(self.cache_folder, f) for f in DEEP_DATA_FOLDERS + RECOMMENDED_CACHE_FOLDERS if f not in ("logs", "crashes")]
+        
+        # Folders that live inside the 'FiveM.app' directory (fivem_app_path)
+        folders_in_app = [os.path.join(self.fivem_app_path, f) for f in ("logs", "crashes")]
 
-        # Combine all folder paths for iteration
-        all_folders_to_check = cache_folders_in_data + data_folders_in_data + cache_folders_in_app
+        all_folders_to_check = folders_in_data + folders_in_app
         
         total_size = 0
         
@@ -335,7 +361,7 @@ class FiveMCleanerApp:
                 self.log_message(log_line)
                 total_size += size
             else:
-                # FIX E: Log missing folders with aligned placeholder
+                # Log missing folders with aligned placeholder
                 log_line = f"{folder_name:<25} {category_for_alignment:<8} {'0.00':>10} [NOT FOUND]"
                 self.log_message(log_line)
         
@@ -348,7 +374,7 @@ class FiveMCleanerApp:
         """Searches for the cache folder, updates the log, and displays buttons."""
         
         self.search_button_ref.config(state=tk.DISABLED)
-        # FIX D: Clear the log window on new search
+        # Clear the log window on new search
         self.log_text.delete('1.0', tk.END)
         self.check_and_log_theme_status()
         
@@ -403,7 +429,7 @@ class FiveMCleanerApp:
         """Enables or disables the clean buttons."""
         for button in self.clean_buttons_list:
             button.config(state=state)
-        # FIX C: Also disable/enable the launch mode checkbutton
+        # Also disable/enable the launch mode checkbutton
         self.pure_mode_checkbutton.config(state=state)
 
     def display_clean_buttons(self, initial_size):
@@ -422,10 +448,10 @@ class FiveMCleanerApp:
         self.clean_buttons_list.clear()
 
         # Clean buttons are in Row 3 
-        button1 = ttk.Button(self.master, text="2. Clear Cache (Recommended)", command=lambda: self.start_cleaning_part1(initial_size), width=35)
+        button1 = ttk.Button(self.master, text="2. Clear Cache (Recommended)", command=lambda: self.start_cleaning_part1(initial_size), width=45)
         button1.grid(row=3, column=0, pady=10, padx=5, sticky='e')
 
-        button2 = ttk.Button(self.master, text="3. Clear Data Folder (Deep Clean)", command=lambda: self.start_cleaning_part2(initial_size), width=35)
+        button2 = ttk.Button(self.master, text="3. Clear Data Folder (Deep Clean)", command=lambda: self.start_cleaning_part2(initial_size), width=45)
         button2.grid(row=3, column=1, pady=10, padx=5, sticky='w')
         
         self.clean_buttons_list.append(button1)
@@ -456,7 +482,7 @@ class FiveMCleanerApp:
 
     def delete_folders(self, folders):
         """Deletes a list of folders and updates the progress bar (indeterminate mode)."""
-        # FIX F: Start indeterminate progress bar
+        # Start indeterminate progress bar
         self.progress_bar.start(10)
         
         for folder in folders:
@@ -466,7 +492,7 @@ class FiveMCleanerApp:
 
     def start_cleaning_part1(self, initial_size):
         """Starts cleaning process for 'Clear Cache' (Recommended)."""
-        # FIX C: Disable all UI elements during cleanup
+        # Disable all UI elements during cleanup
         self.set_clean_button_state(tk.DISABLED)
         self.search_button_ref.config(state=tk.DISABLED)
         
@@ -477,7 +503,8 @@ class FiveMCleanerApp:
         # Build the list of folders to delete (Cache only)
         folders_to_delete = []
         for folder_name in RECOMMENDED_CACHE_FOLDERS:
-            if folder_name in ["logs", "crashes"]:
+            # Check if the folder is in the 'FiveM.app' path (logs, crashes) or the 'data' path (cache, etc.)
+            if folder_name in ("logs", "crashes"):
                 folders_to_delete.append(os.path.join(self.fivem_app_path, folder_name))
             else:
                 folders_to_delete.append(os.path.join(self.cache_folder, folder_name))
@@ -502,7 +529,7 @@ class FiveMCleanerApp:
         )
         
         if response:
-            # FIX C: Disable all UI elements during cleanup
+            # Disable all UI elements during cleanup
             self.set_clean_button_state(tk.DISABLED)
             self.search_button_ref.config(state=tk.DISABLED)
             self.log_message(f"Starting deep cache cleanup of {initial_size:.2f} MB...")
@@ -514,7 +541,7 @@ class FiveMCleanerApp:
 
             folders_to_delete = []
             for folder_name in all_folders:
-                if folder_name in ["logs", "crashes"]:
+                if folder_name in ("logs", "crashes"):
                     folders_to_delete.append(os.path.join(self.fivem_app_path, folder_name))
                 else:
                     folders_to_delete.append(os.path.join(self.cache_folder, folder_name))
