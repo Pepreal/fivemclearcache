@@ -93,15 +93,16 @@ def get_mounted_drives():
     # Fallback for non-Windows or import failure
     return [f"{d}:\\" for d in "CDEFG"] 
 
-# --- Main Application Class (Version 0.3.1) ---
+# --- Main Application Class (Version 0.3.2) ---
 
 class FiveMCleanerApp:
     def __init__(self, master):
         self.master = master
-        self.master.title("FiveM Cache Cleaner V0.3.1")
+        self.master.title("FiveM Cache Cleaner V0.3.2")
         self.master.geometry("1000x570")
         
         try:
+            # Attempt to set the window icon from a resource file
             self.master.iconbitmap(resource_path("fivem_cleaner.ico"))
         except tk.TclError as e:
             pass 
@@ -111,9 +112,21 @@ class FiveMCleanerApp:
         # --- Variables ---
         self.cache_folder = None
         self.fivem_app_path = None
-        self.mode_var = tk.IntVar(value=0)
-        self.clean_buttons_list = []
-        self.initial_size = 0
+        self.pure_mode_var = tk.IntVar(value=0) 
+        self.deep_clean_var = tk.IntVar(value=0) 
+        
+        # References to GUI elements for state/config updates
+        self.clean_button_ref = None 
+        self.pure_mode_checkbutton = None 
+        self.title_frame = None 
+        self.centered_content_frame = None 
+        self.progress_frame = None 
+        self.path_fg = "" # Theme color variable
+        self.size_fg = "" # Theme color variable
+        
+        # Size tracking variables
+        self.recommended_cache_size = 0.0
+        self.deep_data_size = 0.0
         
         self.theme_mode = check_windows_theme()
 
@@ -130,19 +143,15 @@ class FiveMCleanerApp:
     def show_disclaimer(self):
         """Displays a disclaimer and returns True if accepted, False if cancelled."""
         disclaimer_text = (
-        "Version 0.3.1 (22-11-2025)\n\n"
+        "Version 0.3.2 (22-11-2025)\n\n"
         "This tool is provided as-is and is currently in the testing phase.\n"
         "Use it at your own risk.\n\n"
         "Purpose:\n"
         "This tool is designed to simplify the process of clearing FiveM cache folders for users.\n"
-        "Users do not need any technical knowledge to clear the FiveM cache folders.\n"
-        "The tool is location-aware, meaning it can automatically detect the FiveM installation folder, even if it is installed in a non-default location. However, if FiveM is installed in a non-default location, the search process may take a bit longer.\n\n"
-        "The tool provides information about the size and total size of the cache folders.\n"
-        "Once the search is complete, it will display the total size of the cache folders. \n"
-        "You will have two options to choose from:\n\n"
-        "- Clear Cache: This will only clear the cache of your FiveM installation.\n"
-        "- Clear Data Folder: This will clear both the cache and the build of FiveM. Only proceed if you are encountering issues with FiveM or want to perform a deep clean. \n\n"
-        "After the tool is done, it will ask if you want to start FiveM.\n\n"
+        "The tool is location-aware, meaning it can automatically detect the FiveM installation folder.\n\n"
+        "The size displayed updates dynamically based on the 'Deep Clean' checkbox.\n"
+        " - **Clear Cache (Default)**: Clears only temporary cache.\n"
+        " - **Deep Clean (Optional)**: Clears cache PLUS user settings and login data.\n\n"
         "By continuing, you acknowledge and accept the potential risks.\n\n"
         "© By: Pepreal (Marcus Mosley)"
         )
@@ -152,7 +161,7 @@ class FiveMCleanerApp:
     def build_app_gui(self):
         """Builds all GUI components and makes the main window visible."""
         # Configure grid weights
-        self.master.grid_rowconfigure(6, weight=1)
+        self.master.grid_rowconfigure(7, weight=1) # Log row is now row 7
         self.master.grid_columnconfigure(0, weight=1)
         self.master.grid_columnconfigure(1, weight=1)
         
@@ -167,7 +176,15 @@ class FiveMCleanerApp:
         self.style.configure('TButton', font=('Arial', 10), padding=5)
         self.style.configure('TLabel', font=('Arial', 10))
         self.style.configure('Title.TLabel', font=('Arial', 18, 'bold'))
-        self.style.configure('Action.TButton', font=('Arial', 11, 'bold'))
+        
+        # Style for the Deep Clean text (red foreground)
+        self.style.configure('DeepClean.TCheckbutton', foreground='#dc3545', font=('Arial', 10, 'bold'))
+        
+        # 1. Normal Cleanup Button Style (Default color)
+        self.style.configure('NormalCleanup.TButton', font=('Arial', 11, 'bold')) 
+
+        # 2. Deep Cleanup Button Style (Red prominent text)
+        self.style.configure('Cleanup.TButton', foreground='#dc3545', font=('Arial', 11, 'bold'))
         
     def apply_theme_colors(self):
         """Applies the color scheme based on the detected theme_mode."""
@@ -176,21 +193,37 @@ class FiveMCleanerApp:
             status_color = "#cccccc"
             title_color = "#81d4fa"
             log_bg = "#1e1e1e"
+            
+            # Specific colors for status labels
+            self.path_fg = "#81d4fa"
+            self.size_fg = "#e57373"
         else: # Light Mode
             bg_color = "#f0f0f0"
             status_color = "#555555"
             title_color = "#007bff"
             log_bg = "#ffffff"
+            
+            # Specific colors for status labels
+            self.path_fg = "#007bff"
+            self.size_fg = "#dc3545"
 
-        # Apply to main window and frames
+        # Apply to main window and frames 
         self.master.config(bg=bg_color)
-        for widget in [self.master, self.title_frame, self.status_frame, self.launch_mode_frame]:
-            widget.config(bg=bg_color)
+        for widget in [self.master, self.title_frame, self.status_frame, self.clean_frame, self.progress_frame]:
+            if widget:
+                widget.config(bg=bg_color)
+            
+        # These frames were created inside create_widgets, so check if they exist
+        try:
+            self.centered_content_frame.config(bg=bg_color)
+            # pure_mode_checkbutton is now directly on self.master, so no need to config its master frame
+        except AttributeError:
+             pass 
 
         # Apply to Text Log
         self.log_text.config(bg=log_bg, fg=status_color)
 
-        # Apply to Labels (using status_color for generic text)
+        # Apply to Labels (Default 'Ready to Search' colors)
         self.path_label.config(bg=bg_color, fg=status_color)
         self.size_label.config(bg=bg_color, fg=status_color)
         self.mode_display_label.config(bg=bg_color)
@@ -213,56 +246,129 @@ class FiveMCleanerApp:
 
 
     def create_widgets(self):
-        # --- Row 0: Title and Help Button ---
+        
+        # --- Row 0: Centered Title and Help Button (Isolated for Perfect Centering) ---
         self.title_frame = tk.Frame(self.master)
-        self.title_frame.grid(row=0, column=0, columnspan=2, pady=10)
+        # Use columnspan=2 and sticky 'ew' to ensure it takes full master width for centering
+        self.title_frame.grid(row=0, column=0, columnspan=2, pady=10, sticky='ew')
+        
+        # Configure inner grid weights to center the content
+        self.title_frame.grid_columnconfigure(0, weight=1)  # Left Spacer
+        self.title_frame.grid_columnconfigure(1, weight=0)  # Title Group (Fixed Size)
+        self.title_frame.grid_columnconfigure(2, weight=1)  # Right Spacer
+        
+        # 1. Inner frame for Title and Help (This group goes into the centered column 1)
+        title_help_frame = tk.Frame(self.title_frame)
+        title_help_frame.grid(row=0, column=1) 
 
-        self.title_label = tk.Label(self.title_frame, text="FiveM Cache Cleaner", font=("Arial", 18, "bold"))
+        # Title Label
+        self.title_label = tk.Label(title_help_frame, text="FiveM Cache Cleaner", font=("Arial", 18, "bold"))
         self.title_label.pack(side=tk.LEFT)
         
-        help_button = ttk.Button(self.title_frame, text="?", command=self.show_help, width=2)
+        # Help Button
+        help_button = ttk.Button(title_help_frame, text="?", command=self.show_help, width=2)
         help_button.pack(side=tk.LEFT, padx=(10, 5))
         
-        # --- Row 1: Search Button ---
-        self.search_button_ref = ttk.Button(self.master, text="1. Search for FiveM Cache", command=self.search_cache, width=45, style='Action.TButton')
-        self.search_button_ref.grid(row=1, column=0, columnspan=2, pady=(10, 5))
+        # --- Row 1: Force Pure Mode Checkbox (Moved to its own row, aligned right) ---
+        self.pure_mode_checkbutton = ttk.Checkbutton(
+            self.master, 
+            text="Force Pure Mode (-pure_1)", 
+            variable=self.pure_mode_var, 
+            onvalue=1, 
+            offvalue=0, 
+            state=tk.DISABLED,
+        )
+        # Place it on Row 1, spanned over both columns, sticky to the East (right)
+        self.pure_mode_checkbutton.grid(row=1, column=0, columnspan=2, padx=10, sticky='e') 
+
         
-        # --- Row 2: Status Labels (Immediate Feedback) ---
+        # --- Row 2: Search Button ---
+        self.search_button_ref = ttk.Button(self.master, text="Search for FiveM Cache", command=self.search_cache, width=45, style='Action.TButton')
+        self.search_button_ref.grid(row=2, column=0, columnspan=2, pady=(10, 5))
+        
+        # --- Row 3: Status Labels (Immediate Feedback) ---
         self.status_frame = tk.Frame(self.master)
-        self.status_frame.grid(row=2, column=0, columnspan=2, pady=(0, 10))
+        self.status_frame.grid(row=3, column=0, columnspan=2, pady=(0, 10))
 
         # Cache Path Label
         self.path_label = tk.Label(self.status_frame, text="Folder: Ready to Search.", font=("Arial", 10))
         self.path_label.pack(side=tk.LEFT, padx=30)
         
-        # Cache Size Label
+        # Cache Size Label - Will be updated dynamically
         self.size_label = tk.Label(self.status_frame, text="Size: 0.00 MB", font=("Arial", 10))
         self.size_label.pack(side=tk.LEFT, padx=30)
         
-        # --- Row 3: Cleaning Buttons (Dynamically displayed) ---
+        # --- Row 4: Cleaning Options and Start Button (Centered Button + Checkbox) ---
+        self.clean_frame = tk.Frame(self.master)
+        self.clean_frame.grid(row=4, column=0, columnspan=2, pady=10, sticky='ew')
         
-        # --- Row 4: Progress Bar ---
-        self.progress_bar = ttk.Progressbar(self.master, orient="horizontal", length=900, mode="indeterminate")
-        self.progress_bar.grid(row=4, column=0, columnspan=2, pady=10)
-        self.progress_bar.grid_forget()
+        self.clean_frame.grid_columnconfigure(0, weight=1) 
+        self.clean_frame.grid_columnconfigure(1, weight=0) 
+        self.clean_frame.grid_columnconfigure(2, weight=1) 
         
-        # --- Row 5: Launch Mode Selection ---
-        self.launch_mode_frame = tk.Frame(self.master)
-        self.launch_mode_frame.grid(row=5, column=0, columnspan=2, pady=(5, 10))
-
-        self.mode_var.trace_add("write", self.update_mode_label)
-
-        # Pure Mode Checkbutton
-        self.pure_mode_checkbutton = ttk.Checkbutton(self.launch_mode_frame, text="Force Pure Mode Launch (Set -pure_1)", variable=self.mode_var, onvalue=1, offvalue=0)
-        self.pure_mode_checkbutton.pack(side=tk.LEFT, padx=15)
+        self.centered_content_frame = tk.Frame(self.clean_frame)
+        self.centered_content_frame.grid(row=0, column=1, sticky='') 
         
-        # Mode Display Label (Clear visual confirmation)
-        self.mode_display_label = tk.Label(self.launch_mode_frame, font=("Arial", 10, "bold"))
-        self.mode_display_label.pack(side=tk.LEFT, padx=15)
+        self.clean_button_ref = ttk.Button(
+            self.centered_content_frame, 
+            text="Start Cleanup (Clear Cache Only)", 
+            command=lambda: self.start_cleaning(self.get_current_clean_size()), 
+            width=35,
+            style='NormalCleanup.TButton', 
+            state=tk.DISABLED
+        )
+        self.clean_button_ref.pack(side=tk.LEFT, padx=(0, 5), pady=0) 
 
-        # --- Row 6: Log Text Area ---
+        self.deep_clean_checkbutton = ttk.Checkbutton(
+            self.centered_content_frame, 
+            text="Deep Clean (Removes login/settings)", 
+            variable=self.deep_clean_var,
+            style='DeepClean.TCheckbutton', 
+            command=self.deep_clean_confirmation 
+        )
+        self.deep_clean_checkbutton.pack(side=tk.LEFT, padx=(5, 0), pady=0) 
+
+
+        # --- Row 5: Progress Bar Frame (Managed via grid_forget on the Frame) ---
+        self.progress_frame = tk.Frame(self.master)
+        self.progress_frame.grid(row=5, column=0, columnspan=2, pady=10)
+        
+        # Progress bar inside the frame
+        self.progress_bar = ttk.Progressbar(self.progress_frame, orient="horizontal", length=900, mode="indeterminate")
+        self.progress_bar.pack(side=tk.TOP)
+        self.progress_frame.grid_forget() # Initially hide the entire frame
+        
+        # --- Row 6: Launch Mode Display Label ---
+        self.mode_display_label = tk.Label(self.master, font=("Arial", 10, "bold"))
+        self.mode_display_label.grid(row=6, column=0, columnspan=2, pady=(5, 10))
+        
+
+        # --- Row 7: Log Text Area ---
         self.log_text = scrolledtext.ScrolledText(self.master, height=12, width=120, state='normal', font=("Consolas", 9))
-        self.log_text.grid(row=6, column=0, columnspan=2, pady=10, padx=10, sticky="nsew")
+        self.log_text.grid(row=7, column=0, columnspan=2, pady=10, padx=10, sticky="nsew")
+        
+        # Ensure all container backgrounds match the master background color
+        title_help_frame.config(bg=self.master['bg'])
+        self.centered_content_frame.config(bg=self.master['bg'])
+
+
+    def deep_clean_confirmation(self):
+        """Shows a warning popup when the deep clean checkbox is checked and updates size."""
+        if self.deep_clean_var.get() == 1:
+            response = messagebox.askyesno(
+                "Deep Clean Warning: Requires Re-Login",
+                "**You have selected Deep Clean.**\n\n"
+                "This removes your cached login details (`nui-storage`), local game settings (`game-storage`), and all temporary cache.\n\n"
+                "You will be forced to **re-log into FiveM** and may lose local configuration data.\n\n"
+                "Do you wish to proceed with Deep Clean?"
+            )
+            if not response:
+                # If the user clicks No, uncheck the box immediately
+                self.deep_clean_var.set(0)
+        
+        # Update the main clean button text and size based on the choice
+        self.update_clean_button_text()
+        self.update_displayed_size()
 
 
     def log_message(self, msg):
@@ -275,18 +381,38 @@ class FiveMCleanerApp:
         help_text = (
             "## Cleaning Options\n\n"
             "The cleaner targets three main areas of your FiveM installation. We recommend closing FiveM completely before cleaning.\n\n"
-            "1. **Clear Cache (Recommended):**\n"
+            "1. **Clear Cache (Default Mode):**\n"
             "This is the standard fix for most issues (texture glitches, loading problems). It safely removes transient files (cache, logs, crashes) that FiveM generates on every launch. It keeps your login and local settings intact.\n\n"
-            "2. **Clear Data Folder (Deep Clean):**\n"
+            "2. **Deep Clean (Check the Box):**\n"
             "This is an aggressive clean for persistent, critical errors. It deletes ALL cache files PLUS the 'nui-storage' (your CFX login profile) and 'game-storage' (your local settings).\n"
             "**WARNING:** You will be forced to re-log into FiveM and may lose local configuration data.\n\n"
             "## Launch Mode\n\n"
-            "**✅ Checked**\n"
+            "**✅ Checked ('Force Pure Mode'):**\n"
             "FiveM is launched with the **-pure_1** argument. This tells FiveM to ignore local file modifications and custom scripts. This is often necessary when joining servers with strict rules or for troubleshooting mod-related crashes.\n\n"
-            "**⬜ Not Checked**\n"
+            "**⬜ Not Checked (Default):**\n"
             "FiveM will start normally, loading any mods or custom files you have installed."
         )
         messagebox.showinfo("FiveM Cleaner - How to Use", help_text)
+
+    
+    def _get_full_cache_paths(self, folder_names):
+        """
+        Calculates the full, absolute paths for a list of cache/data folder names.
+        This centralizes the logic for determining if a folder is in FiveM.app or FiveM.app/data.
+        """
+        if not self.cache_folder or not self.fivem_app_path:
+            return []
+
+        paths = []
+        for name in folder_names:
+            # logs and crashes are in the FiveM.app directory
+            if name in ("logs", "crashes"):
+                paths.append(os.path.join(self.fivem_app_path, name))
+            # All other folders are inside the 'data' directory (self.cache_folder)
+            else:
+                paths.append(os.path.join(self.cache_folder, name))
+        return paths
+
 
     def find_fivem_paths(self):
         """Search for the FiveM cache folder and derive the FiveM.app path."""
@@ -320,22 +446,22 @@ class FiveMCleanerApp:
         return None
 
     def calculate_and_log_cache_size(self):
-        """Calculates and logs the size of the specific cache folders, labeling them (CACHE) or (DATA)."""
+        """Calculates and logs the size of the specific cache folders."""
         
         if not self.cache_folder or not self.fivem_app_path:
-            self.initial_size = 0
-            return 0
+            self.recommended_cache_size = 0.0
+            self.deep_data_size = 0.0
+            return 0.0
 
-        # Build the list of folders to check using the module-level constants
-        # Folders that live inside the 'data' directory (cache_folder)
-        folders_in_data = [os.path.join(self.cache_folder, f) for f in DEEP_DATA_FOLDERS + RECOMMENDED_CACHE_FOLDERS if f not in ("logs", "crashes")]
-        
-        # Folders that live inside the 'FiveM.app' directory (fivem_app_path)
-        folders_in_app = [os.path.join(self.fivem_app_path, f) for f in ("logs", "crashes")]
+        # Reset size tracking variables
+        self.recommended_cache_size = 0.0
+        self.deep_data_size = 0.0
 
-        all_folders_to_check = folders_in_data + folders_in_app
+        # Build list of all folders to check using the optimized helper
+        all_folders_to_check_names = DEEP_DATA_FOLDERS + RECOMMENDED_CACHE_FOLDERS
+        all_folders_to_check = self._get_full_cache_paths(all_folders_to_check_names)
         
-        total_size = 0
+        total_size = 0.0
         
         self.log_message("--- Analyzing Cache Folders ---")
         
@@ -356,7 +482,13 @@ class FiveMCleanerApp:
             if os.path.exists(folder_path):
                 size = get_folder_size_iterative(folder_path)
                 
-                # Corrected LOG LINE SYNTAX for right-aligned float with 2 decimals
+                # Assign size to the correct tracking variable
+                if folder_name in DEEP_DATA_FOLDERS:
+                    self.deep_data_size += size
+                else:
+                    self.recommended_cache_size += size
+                
+                # Log line 
                 log_line = f"{folder_name:<25} {category_for_alignment:<8} {size:>10.2f}"
                 self.log_message(log_line)
                 total_size += size
@@ -366,12 +498,27 @@ class FiveMCleanerApp:
                 self.log_message(log_line)
         
         self.log_message("-" * 45)
-        self.initial_size = total_size
-        self.log_message(f"Total current cache size: {self.initial_size:.2f} MB")
-        return self.initial_size
+        self.log_message(f"Total current cache size (All folders): {total_size:.2f} MB")
+        self.log_message(f"Cache Size (Default Clean): {self.recommended_cache_size:.2f} MB")
+        self.log_message(f"Deep Data Size (Additional): {self.deep_data_size:.2f} MB")
+
+        return self.recommended_cache_size
+
+    def get_current_clean_size(self):
+        """Returns the size to be cleaned based on the Deep Clean checkbox state."""
+        if self.deep_clean_var.get() == 1:
+            return self.recommended_cache_size + self.deep_data_size
+        else:
+            return self.recommended_cache_size
+
+    def update_displayed_size(self):
+        """Updates the size label next to 'Folder:' based on Deep Clean checkbox state."""
+        current_size = self.get_current_clean_size()
+        self.size_label.config(text=f"Size: {current_size:.2f} MB", foreground=self.size_fg)
+
 
     def search_cache(self):
-        """Searches for the cache folder, updates the log, and displays buttons."""
+        """Searches for the cache folder, updates the log, and enables buttons."""
         
         self.search_button_ref.config(state=tk.DISABLED)
         # Clear the log window on new search
@@ -385,14 +532,16 @@ class FiveMCleanerApp:
             if self.cache_folder:
                 self.log_message(f"Cache folder found: {self.cache_folder}")
                 
-                initial_size = self.calculate_and_log_cache_size()
-                self.display_clean_buttons(initial_size)
+                # Calculate sizes and get the default size (recommended cache size)
+                default_initial_size = self.calculate_and_log_cache_size()
+                
+                self.display_clean_buttons(default_initial_size)
             else:
                 self.log_message("Cache folder not found automatically. Prompting for manual selection.")
                 
-                status_fg = "#dc3545" if self.theme_mode == "Light" else "#e57373"
-                self.path_label.config(text="Folder: Not Found. Please Select Manually.", foreground=status_fg)
-                self.size_label.config(text="Size: 0.00 MB", foreground=status_fg)
+                # Use theme-specific colors for 'Not Found' status
+                self.path_label.config(text="Folder: Not Found. Please Select Manually.", foreground=self.size_fg)
+                self.size_label.config(text="Size: 0.00 MB", foreground=self.size_fg)
 
                 # Manual selection fallback
                 folder_selected = filedialog.askdirectory(title="Select FiveM Data Folder (e.g., FiveM.app/data)")
@@ -401,11 +550,14 @@ class FiveMCleanerApp:
                     self.fivem_app_path = os.path.dirname(folder_selected)
                     
                     self.log_message(f"Manual folder selected: {self.cache_folder}")
-                    initial_size = self.calculate_and_log_cache_size()
-                    self.display_clean_buttons(initial_size)
+                    default_initial_size = self.calculate_and_log_cache_size()
+                    self.display_clean_buttons(default_initial_size)
                 else:
                     self.log_message("Invalid folder selected or selection cancelled.")
-                    self.path_label.config(text="Folder: Ready to Search.", foreground="gray")
+                    # Revert to standard ready state colors
+                    self.path_label.config(text="Folder: Ready to Search.", fg=self.master.cget('bg')) 
+                    self.size_label.config(text="Size: 0.00 MB", fg=self.master.cget('bg'))
+
 
         except Exception as e:
             error_msg = "CRITICAL RUNTIME ERROR in search_cache: %s" % e
@@ -416,7 +568,7 @@ class FiveMCleanerApp:
 
     def update_mode_label(self, *args):
         """Updates the launch mode display label based on the Checkbutton state."""
-        if self.mode_var.get() == 1:
+        if self.pure_mode_var.get() == 1:
             text = "Launch Mode: PURE MODE (-pure_1)"
             color = "#ff7f50" # Coral
         else:
@@ -424,38 +576,46 @@ class FiveMCleanerApp:
             color = "#32cd32" # Lime Green
 
         self.mode_display_label.config(text=text, foreground=color)
+        
+    def update_clean_button_text(self, *args):
+        """
+        Updates the main cleanup button text and color based on the Deep Clean state.
+        """
+        if self.deep_clean_var.get() == 1:
+            text = "Start Cleanup (DEEP CLEAN MODE)"
+            style = 'Cleanup.TButton' # Red style
+        else:
+            text = "Start Cleanup (Clear Cache Only)"
+            style = 'NormalCleanup.TButton' # Default style
+        
+        if self.clean_button_ref:
+            self.clean_button_ref.config(text=text, style=style)
+
 
     def set_clean_button_state(self, state):
-        """Enables or disables the clean buttons."""
-        for button in self.clean_buttons_list:
-            button.config(state=state)
-        # Also disable/enable the launch mode checkbutton
+        """Enables or disables the clean buttons and deep clean checkbox."""
+        if self.clean_button_ref:
+            self.clean_button_ref.config(state=state)
+        self.deep_clean_checkbutton.config(state=state)
         self.pure_mode_checkbutton.config(state=state)
 
     def display_clean_buttons(self, initial_size):
-        """Displays the two cleaning buttons and updates the status labels."""
+        """Updates the status labels and enables the clean/launch options."""
         
-        path_fg = "#007bff" if self.theme_mode == "Light" else "#81d4fa"
-        size_fg = "#dc3545" if self.theme_mode == "Light" else "#e57373"
+        # Use theme-specific colors for path and size labels
+        self.path_label.config(text=f"Folder: {self.cache_folder}", foreground=self.path_fg)
         
-        # Update Status Labels
-        self.path_label.config(text=f"Folder: {self.cache_folder}", foreground=path_fg)
-        self.size_label.config(text=f"Size: {initial_size:.2f} MB", foreground=size_fg)
+        # Initial size update (Deep Clean is off by default)
+        self.update_displayed_size() 
         
-        # Clear any old references and hide existing buttons
-        for button in self.clean_buttons_list:
-            button.grid_forget()
-        self.clean_buttons_list.clear()
+        # Enable relevant UI elements
+        self.clean_button_ref.config(state=tk.NORMAL)
+        self.deep_clean_checkbutton.config(state=tk.NORMAL)
+        self.pure_mode_checkbutton.config(state=tk.NORMAL)
+        
+        # Initial text/color update
+        self.update_clean_button_text()
 
-        # Clean buttons are in Row 3 
-        button1 = ttk.Button(self.master, text="2. Clear Cache (Recommended)", command=lambda: self.start_cleaning_part1(initial_size), width=45)
-        button1.grid(row=3, column=0, pady=10, padx=5, sticky='e')
-
-        button2 = ttk.Button(self.master, text="3. Clear Data Folder (Deep Clean)", command=lambda: self.start_cleaning_part2(initial_size), width=45)
-        button2.grid(row=3, column=1, pady=10, padx=5, sticky='w')
-        
-        self.clean_buttons_list.append(button1)
-        self.clean_buttons_list.append(button2)
 
     def safe_remove(self, path):
         """Remove a folder or file safely, providing detailed logs."""
@@ -482,82 +642,46 @@ class FiveMCleanerApp:
 
     def delete_folders(self, folders):
         """Deletes a list of folders and updates the progress bar (indeterminate mode)."""
-        # Start indeterminate progress bar
+        # Start indeterminate progress bar by showing the progress frame
+        self.progress_frame.grid(row=5, column=0, columnspan=2, pady=10) # Row 5 in new layout
         self.progress_bar.start(10)
         
         for folder in folders:
             self.safe_remove(folder)
 
         self.progress_bar.stop()
+        self.progress_frame.grid_forget() # Hide the progress frame
 
-    def start_cleaning_part1(self, initial_size):
-        """Starts cleaning process for 'Clear Cache' (Recommended)."""
+    def start_cleaning(self, initial_size):
+        """Starts the cleaning process based on the Deep Clean checkbox state."""
+        
+        is_deep_clean = (self.deep_clean_var.get() == 1)
+        
         # Disable all UI elements during cleanup
         self.set_clean_button_state(tk.DISABLED)
         self.search_button_ref.config(state=tk.DISABLED)
         
-        self.log_message(f"Starting essential cache cleanup of {initial_size:.2f} MB...")
+        # Determine the set of folders to delete
+        if is_deep_clean:
+            self.log_message(f"Starting DEEP CLEANUP of {initial_size:.2f} MB...")
+            all_folders_to_clean = RECOMMENDED_CACHE_FOLDERS + DEEP_DATA_FOLDERS
+        else:
+            self.log_message(f"Starting ESSENTIAL CACHE CLEANUP of {initial_size:.2f} MB...")
+            all_folders_to_clean = RECOMMENDED_CACHE_FOLDERS
         
-        self.progress_bar.grid(row=4, column=0, columnspan=2, pady=10)
-        
-        # Build the list of folders to delete (Cache only)
-        folders_to_delete = []
-        for folder_name in RECOMMENDED_CACHE_FOLDERS:
-            # Check if the folder is in the 'FiveM.app' path (logs, crashes) or the 'data' path (cache, etc.)
-            if folder_name in ("logs", "crashes"):
-                folders_to_delete.append(os.path.join(self.fivem_app_path, folder_name))
-            else:
-                folders_to_delete.append(os.path.join(self.cache_folder, folder_name))
+        # Build the final list of full paths using the optimized helper
+        folders_to_delete = self._get_full_cache_paths(all_folders_to_clean)
         
         self.delete_folders(folders_to_delete)
-        self.progress_bar['value'] = 0
-        self.progress_bar.grid_forget()
         
-        messagebox.showinfo("Success", "Essential cache cleared successfully!")
-        self.log_message("Cache cleanup completed.")
+        if is_deep_clean:
+            messagebox.showinfo("Success", "Deep clean completed successfully! Remember to re-log into FiveM.")
+        else:
+            messagebox.showinfo("Success", "Essential cache cleared successfully!")
+            
+        self.log_message("Cleanup process completed.")
         
         self.launch_fivem_prompt()
-
-    def start_cleaning_part2(self, initial_size):
-        """Starts cleaning process for 'Clear Data Folder' (Deep Clean)."""
-        response = messagebox.askyesno(
-        "Deep Clean Warning",
-        "**Are you sure you want to perform a Deep Clean?**\n\n"
-        "This process removes all cache and data folders, including **nui-storage** (CFX login) and **game-storage** (Local Settings).\n\n"
-        "You will be required to re-log into FiveM and set up your launcher preferences again.\n\n"
-        "**Only proceed if the Recommended Clean did not solve your issue.**"
-        )
-        
-        if response:
-            # Disable all UI elements during cleanup
-            self.set_clean_button_state(tk.DISABLED)
-            self.search_button_ref.config(state=tk.DISABLED)
-            self.log_message(f"Starting deep cache cleanup of {initial_size:.2f} MB...")
-            
-            self.progress_bar.grid(row=4, column=0, columnspan=2, pady=10)
-            
-            # Combine all folders (Cache + Data)
-            all_folders = RECOMMENDED_CACHE_FOLDERS + DEEP_DATA_FOLDERS
-
-            folders_to_delete = []
-            for folder_name in all_folders:
-                if folder_name in ("logs", "crashes"):
-                    folders_to_delete.append(os.path.join(self.fivem_app_path, folder_name))
-                else:
-                    folders_to_delete.append(os.path.join(self.cache_folder, folder_name))
-            
-            self.delete_folders(folders_to_delete)
-            self.progress_bar['value'] = 0
-            self.progress_bar.grid_forget()
-
-            messagebox.showinfo("Success", "Deep clean completed successfully!")
-            self.log_message("Deep cache cleanup completed.")
-            
-            self.launch_fivem_prompt()
-        else:
-            self.log_message("Deep clean cancelled by user.")
-            self.search_button_ref.config(state=tk.NORMAL)
-            self.set_clean_button_state(tk.NORMAL)
 
     def find_fivem_exe(self):
         """Derives the FiveM.exe path from the FiveM.app path."""
@@ -585,7 +709,7 @@ class FiveMCleanerApp:
             self.log_message("Launch failed: FiveM.exe not found.")
             return
 
-        mode_pure = (self.mode_var.get() == 1)
+        mode_pure = (self.pure_mode_var.get() == 1)
         
         if mode_pure:
             launch_args = "-pure_1" 
@@ -600,6 +724,7 @@ class FiveMCleanerApp:
         self.log_message(f"Execution command: \"{exe_path}\" {launch_args}")
         
         try:
+            # We use subprocess.Popen to launch FiveM and allow the cleaner to close/finish
             subprocess.Popen(cmd_list, close_fds=True) 
             self.master.destroy()
         except Exception as e:
@@ -610,9 +735,12 @@ class FiveMCleanerApp:
         """Asks the user if they want to launch FiveM."""
         
         self.search_button_ref.config(state=tk.NORMAL)
-        self.set_clean_button_state(tk.NORMAL) # Re-enable clean buttons and launch option
+        self.set_clean_button_state(tk.NORMAL) # Re-enable clean options and launch mode
         
-        mode_text = "PURE MODE" if self.mode_var.get() == 1 else "NORMAL MODE"
+        # Update the displayed size one last time (will show 0.00 if cleaning was successful)
+        self.update_displayed_size()
+
+        mode_text = "PURE MODE" if self.pure_mode_var.get() == 1 else "NORMAL MODE"
         
         response = messagebox.askyesno(
             "Launch FiveM", 
@@ -630,6 +758,10 @@ def run_cleaner():
     """Starts the application by creating the root and the main app instance."""
     root = tk.Tk()
     app = FiveMCleanerApp(root)
+    # Bind the Deep Clean Checkbox
+    app.deep_clean_var.trace_add("write", app.deep_clean_confirmation) 
+    # Bind the Pure Mode variable
+    app.pure_mode_var.trace_add("write", app.update_mode_label)
     root.mainloop()
 
 if __name__ == "__main__":
