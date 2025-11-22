@@ -93,12 +93,12 @@ def get_mounted_drives():
     # Fallback for non-Windows or import failure
     return [f"{d}:\\" for d in "CDEFG"] 
 
-# --- Main Application Class (Version 0.3) ---
+# --- Main Application Class (Version 0.3.1) ---
 
 class FiveMCleanerApp:
     def __init__(self, master):
         self.master = master
-        self.master.title("FiveM Cache Cleaner V0.3")
+        self.master.title("FiveM Cache Cleaner V0.3.1")
         self.master.geometry("1000x570")
         
         try:
@@ -130,7 +130,7 @@ class FiveMCleanerApp:
     def show_disclaimer(self):
         """Displays a disclaimer and returns True if accepted, False if cancelled."""
         disclaimer_text = (
-        "Version 0.3 (22-11-2025)\n\n"
+        "Version 0.3.1 (22-11-2025)\n\n"
         "This tool is provided as-is and is currently in the testing phase.\n"
         "Use it at your own risk.\n\n"
         "Purpose:\n"
