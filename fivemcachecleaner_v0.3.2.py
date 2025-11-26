@@ -5,8 +5,6 @@ import subprocess
 import tkinter as tk
 from tkinter import messagebox, ttk, scrolledtext, filedialog
 
-# --- Module-Level Constants ---
-
 # Folders targeted by the "Clear Cache (Recommended)" option
 RECOMMENDED_CACHE_FOLDERS = ("cache", "server-cache", "server-cache-priv", "logs", "crashes")
 
@@ -22,7 +20,6 @@ try:
     WINREG_AVAILABLE = True
     CTYPES_AVAILABLE = True
 except ImportError:
-    # If modules fail to import, set flags to False
     WINREG_AVAILABLE = False
     CTYPES_AVAILABLE = False
 
@@ -93,16 +90,13 @@ def get_mounted_drives():
     # Fallback for non-Windows or import failure
     return [f"{d}:\\" for d in "CDEFG"] 
 
-# --- Main Application Class (Version 0.3.2) ---
-
 class FiveMCleanerApp:
     def __init__(self, master):
         self.master = master
         self.master.title("FiveM Cache Cleaner V0.3.2")
         self.master.geometry("1000x570")
         
-        try:
-            # Attempt to set the window icon from a resource file
+        try:            
             self.master.iconbitmap(resource_path("fivem_cleaner.ico"))
         except tk.TclError as e:
             pass 
@@ -161,7 +155,7 @@ class FiveMCleanerApp:
     def build_app_gui(self):
         """Builds all GUI components and makes the main window visible."""
         # Configure grid weights
-        self.master.grid_rowconfigure(7, weight=1) # Log row is now row 7
+        self.master.grid_rowconfigure(7, weight=1)
         self.master.grid_columnconfigure(0, weight=1)
         self.master.grid_columnconfigure(1, weight=1)
         
@@ -215,8 +209,7 @@ class FiveMCleanerApp:
             
         # These frames were created inside create_widgets, so check if they exist
         try:
-            self.centered_content_frame.config(bg=bg_color)
-            # pure_mode_checkbutton is now directly on self.master, so no need to config its master frame
+            self.centered_content_frame.config(bg=bg_color)            
         except AttributeError:
              pass 
 
@@ -248,8 +241,7 @@ class FiveMCleanerApp:
     def create_widgets(self):
         
         # --- Row 0: Centered Title and Help Button (Isolated for Perfect Centering) ---
-        self.title_frame = tk.Frame(self.master)
-        # Use columnspan=2 and sticky 'ew' to ensure it takes full master width for centering
+        self.title_frame = tk.Frame(self.master)        
         self.title_frame.grid(row=0, column=0, columnspan=2, pady=10, sticky='ew')
         
         # Configure inner grid weights to center the content
@@ -362,8 +354,7 @@ class FiveMCleanerApp:
                 "You will be forced to **re-log into FiveM** and may lose local configuration data.\n\n"
                 "Do you wish to proceed with Deep Clean?"
             )
-            if not response:
-                # If the user clicks No, uncheck the box immediately
+            if not response:                
                 self.deep_clean_var.set(0)
         
         # Update the main clean button text and size based on the choice
@@ -520,8 +511,7 @@ class FiveMCleanerApp:
     def search_cache(self):
         """Searches for the cache folder, updates the log, and enables buttons."""
         
-        self.search_button_ref.config(state=tk.DISABLED)
-        # Clear the log window on new search
+        self.search_button_ref.config(state=tk.DISABLED)        
         self.log_text.delete('1.0', tk.END)
         self.check_and_log_theme_status()
         
@@ -553,8 +543,7 @@ class FiveMCleanerApp:
                     default_initial_size = self.calculate_and_log_cache_size()
                     self.display_clean_buttons(default_initial_size)
                 else:
-                    self.log_message("Invalid folder selected or selection cancelled.")
-                    # Revert to standard ready state colors
+                    self.log_message("Invalid folder selected or selection cancelled.")                   
                     self.path_label.config(text="Folder: Ready to Search.", fg=self.master.cget('bg')) 
                     self.size_label.config(text="Size: 0.00 MB", fg=self.master.cget('bg'))
 
@@ -570,10 +559,10 @@ class FiveMCleanerApp:
         """Updates the launch mode display label based on the Checkbutton state."""
         if self.pure_mode_var.get() == 1:
             text = "Launch Mode: PURE MODE (-pure_1)"
-            color = "#ff7f50" # Coral
+            color = "#ff7f50"
         else:
             text = "Launch Mode: NORMAL MODE (Default)"
-            color = "#32cd32" # Lime Green
+            color = "#32cd32"
 
         self.mode_display_label.config(text=text, foreground=color)
         
@@ -583,10 +572,10 @@ class FiveMCleanerApp:
         """
         if self.deep_clean_var.get() == 1:
             text = "Start Cleanup (DEEP CLEAN MODE)"
-            style = 'Cleanup.TButton' # Red style
+            style = 'Cleanup.TButton'
         else:
             text = "Start Cleanup (Clear Cache Only)"
-            style = 'NormalCleanup.TButton' # Default style
+            style = 'NormalCleanup.TButton'
         
         if self.clean_button_ref:
             self.clean_button_ref.config(text=text, style=style)
@@ -643,14 +632,14 @@ class FiveMCleanerApp:
     def delete_folders(self, folders):
         """Deletes a list of folders and updates the progress bar (indeterminate mode)."""
         # Start indeterminate progress bar by showing the progress frame
-        self.progress_frame.grid(row=5, column=0, columnspan=2, pady=10) # Row 5 in new layout
+        self.progress_frame.grid(row=5, column=0, columnspan=2, pady=10)
         self.progress_bar.start(10)
         
         for folder in folders:
             self.safe_remove(folder)
 
         self.progress_bar.stop()
-        self.progress_frame.grid_forget() # Hide the progress frame
+        self.progress_frame.grid_forget()
 
     def start_cleaning(self, initial_size):
         """Starts the cleaning process based on the Deep Clean checkbox state."""
@@ -735,7 +724,7 @@ class FiveMCleanerApp:
         """Asks the user if they want to launch FiveM."""
         
         self.search_button_ref.config(state=tk.NORMAL)
-        self.set_clean_button_state(tk.NORMAL) # Re-enable clean options and launch mode
+        self.set_clean_button_state(tk.NORMAL)
         
         # Update the displayed size one last time (will show 0.00 if cleaning was successful)
         self.update_displayed_size()
@@ -752,7 +741,6 @@ class FiveMCleanerApp:
         else:
             self.log_message("FiveM launch cancelled by user. Program remains open.")
 
-# --- Execution ---
 
 def run_cleaner():
     """Starts the application by creating the root and the main app instance."""
