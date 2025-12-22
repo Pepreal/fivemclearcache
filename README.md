@@ -12,6 +12,8 @@ This is a standalone, lightweight desktop application built with Python and Tkin
 * **Forced Launch Mode:** Allows the user to launch FiveM with the **`-pure_1`** argument for strict server environments or advanced troubleshooting.
 * **Live Logging:** Provides a detailed log of the discovery, deletion, and launch processes for transparency and debugging.
 
+<img width="1247" height="743" alt="afbeelding" src="https://github.com/user-attachments/assets/4d901af2-1546-44fb-95f7-71f139678300" />
+
 ---
 
 ### ⚙️ How It Works
